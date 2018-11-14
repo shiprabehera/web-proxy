@@ -21,7 +21,7 @@
 #define CACHESIZE 131072
 
 struct cache {
-    char pageData[HUGEBUFSIZE];
+    char page_data[HUGEBUFSIZE];
     char url[MAXBUFSIZE];
     int pageSize; 
     time_t lastUsed;
@@ -56,23 +56,39 @@ void signal_handler(int sig_num) {
     fflush(stdout);
     exit(0);
 }
-void addPageToCache(char *data, char *url, int pageSize)
+void add_page_to_cache(char *data, char *url, int pageSize)
 {
     //Allocate memory and assign values to struct object
-    cache *page = (cache *)malloc(sizeof(page)*HUGEBUFSIZE);
-    // page->pageData = (char *)malloc(HUGEBUFSIZE*sizeof(char));
-    // page->url = (char *)malloc(MAXBUFSIZE*sizeof(char));
-    // memset(&page->pageData, 0, HUGEBUFSIZE);
-    // memset(&page->url, 0, MAXBUFSIZE);
+    /*cache *page = (cache *)malloc(sizeof(page)*HUGEBUFSIZE);
     page->next = head;
-    strcpy(page->pageData, data);
+    strcpy(page->page_data, data);
     strcpy(page->url,url);
     page->pageSize = pageSize;
     page->lastUsed = time(NULL);
-    head = page;
+    head = page;*/
+    FILE *f = fopen("temp.txt", "w");
+    fprintf(f, "%s", url);
+    fclose(f);
+    f = popen("md5 temp.txt", "r");
+    char buf[MAXBUFSIZE];
+    fgets(buf, MAXBUFSIZE, f);
+    pclose(f);
+    int i = 0;
+    while(buf[i] != '=') {
+        i++;
+    }
+    i += 2;
+    buf[strlen(buf)-1] = '\0';
+    strcat(buf, ".txt");
+    f = fopen("temp.txt", "w");
+    fprintf(f, "%ld\n", time(NULL));
+    fprintf(f, "%s\n", data);
+    //printf("%s\n", data);
+    fclose(f);
+    rename("temp.txt", &buf[i]);
 }
 
-cache* findCachePage(char * url)
+cache* find_cached_page(char * url)
 {
     cache *page = NULL;
     if(head != NULL)
@@ -101,7 +117,7 @@ void parseHostName(char* requestURI, char* hostName)
 }
 
 //Read in the server's HTTP header message
-int readHeader(int server_sock, char *headerBuf, int headerBufSize) {
+int read_header(int server_sock, char *headerBuf, int headerBufSize) {
     int i = 0;
     char c = '\0';
     int byteRec;
@@ -146,7 +162,7 @@ int receiveFromServer(int server_sock, char *buf) {
     unsigned int offset = 0;
     while (1) 
     {
-        int length = readHeader(server_sock, msgBuffer, LARGEBUFSIZE);
+        int length = read_header(server_sock, msgBuffer, LARGEBUFSIZE);
         if( length <= 0)
         {
             return -1;
@@ -188,117 +204,11 @@ int receiveFromServer(int server_sock, char *buf) {
     return (offset + i + 4);
 }
 
-//Check for valid requests and output errors
-int errorHandler(int client_sock, int statusCode, char* requestMethod, char* requestURI, char* requestVersion)
-{
-    char errorHeader[MAXBUFSIZE];
-    char errorContent[MAXBUFSIZE];
-    int length = 0;
-
-    //Clear the buffers before use
-    memset(&errorHeader, 0, MAXBUFSIZE);
-    memset(&errorContent, 0, MAXBUFSIZE);
-
-    //If we don't have a specific error to print (i.e. validation)
-    if(statusCode == 0)
-    {
-        //501: not implemented
-        if( (strcmp(requestMethod, "POST") == 0) || (strcmp(requestMethod, "HEAD") == 0) 
-            || (strcmp(requestMethod, "PUT") ==0) || (strcmp(requestMethod, "DELETE") == 0)
-            || (strcmp(requestMethod, "OPTIONS") == 0 ) || (strcmp(requestMethod, "CONNECT") == 0) )
-        {
-            statusCode = 501;
-        }
-        if ( !( (strcmp(requestVersion, "HTTP/1.1") == 0) || (strcmp(requestVersion, "HTTP/1.0") == 0) ) )
-        {
-            snprintf(errorContent, MAXBUFSIZE, "<html><body>400 Bad Request Reason: "
-                "Invalid Version:%s</body></html>\r\n\r\n", requestVersion);
-
-            //Create the header structure
-            length += snprintf(errorHeader, MAXBUFSIZE, "HTTP/1.1 400 Bad Request\r\n");
-            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Type: text/html\r\n");
-            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Length: %lu\r\n\r\n", strlen(errorContent));
-
-            //Send header to client
-            send(client_sock, errorHeader, strlen(errorHeader), 0);
-            //Write data to the client
-            write(client_sock, errorContent, strlen(errorContent));
-
-            return -1;
-        }
-        //400 Error: bad request method
-        if( !( (strcmp(requestMethod, "GET") == 0) ) && statusCode != 501 )
-        {
-            snprintf(errorContent, MAXBUFSIZE, "<html><body>400 Bad Request Reason: "
-                "Invalid Method:%s</body></html>\r\n\r\n", requestMethod);
-
-            //Create the header structure
-            length += snprintf(errorHeader, MAXBUFSIZE, "HTTP/1.1 400 Bad Request\r\n");
-            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Type: text/html\r\n");
-            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Length: %lu\r\n\r\n", strlen(errorContent));
-
-            //Send header to client
-            send(client_sock, errorHeader, strlen(errorHeader), 0);
-            //Write data to the client
-            write(client_sock, errorContent, strlen(errorContent));
-
-            return -1;
-        }
-    }
-    //If we want to output a specific status code
-    switch(statusCode)
-    {
-        //File not found
-        case 0:
-            return 0;
-            break;
-        case 404:
-            snprintf(errorContent, MAXBUFSIZE, "<html><body>404 Not Found "
-            "Reason URL does not exist: %s</body></html>\r\n\r\n", requestURI);
-
-            length += snprintf(errorHeader, MAXBUFSIZE, "HTTP/1.1 404 Not Found\r\n");
-            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Type: text/html\r\n");
-            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Length: %lu\r\n\r\n", strlen(errorContent));
-            send(client_sock, errorHeader, strlen(errorHeader), 0);
-            
-            write(client_sock, errorContent, strlen(errorContent));
-            return -1;
-            break;
-        //Catch-all for other errors
-        case 500:
-            length += snprintf(errorHeader, MAXBUFSIZE, "HTTP/1.1 500 Internal Server Error\r\n");
-            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Type: text/html\r\n");
-            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Length: %lu\r\n\r\n", strlen(errorContent));
-            snprintf(errorContent, MAXBUFSIZE, "<html><body>500 Internal Server Error: "
-                "Cannot allocate memory</body></html>\r\n\r\n");
-            send(client_sock, errorHeader, strlen(errorHeader), 0);
-            
-            write(client_sock, errorContent, strlen(errorContent));
-            return -1;
-            break;
-        //Duplicate, but in case we want to call it specifically
-        case 501:
-            snprintf(errorContent, MAXBUFSIZE, "<html><body>501 Not Implemented "
-            "Method: %s</body></html>\r\n\r\n", requestMethod);
-
-            length += snprintf(errorHeader, MAXBUFSIZE, "HTTP/1.1 501 Not Implemented\r\n");
-            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Type: text/html\r\n");
-            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Length: %lu\r\n\r\n", strlen(errorContent));
-            send(client_sock, errorHeader, strlen(errorHeader), 0);
-            
-            write(client_sock, errorContent, strlen(errorContent));
-            return -1;
-            break;
-    }
-
-    return 0;
-}
 
 //Handles client requests
-void processRequest(int client_sock, char* clientMessage, char* requestURI, char* hostName)
-{
-    char serverMessage[HUGEBUFSIZE];
-    memset(&serverMessage, 0, HUGEBUFSIZE);
+void handle_request(int client_sock, char* client_response, char* request_uri, char* host_name) {
+    char server_response[HUGEBUFSIZE];
+    memset(&server_response, 0, HUGEBUFSIZE);
 
     int server_sock;
     struct sockaddr_in server;
@@ -317,15 +227,15 @@ void processRequest(int client_sock, char* clientMessage, char* requestURI, char
     setsockopt(server_sock, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
      
     //Prepare the sockaddr_in structure
-    struct hostent* hostt;
-    hostt = gethostbyname(hostName);
-    if(hostt == NULL)
+    struct hostent* hostname;
+    hostname = gethostbyname(host_name);
+    if(hostname == NULL)
     {
         printf("gethostbyname error: %s\n", strerror(h_errno));
     }
 
     server.sin_family = AF_INET;
-    memcpy(&server.sin_addr, hostt->h_addr_list[0], hostt->h_length);
+    memcpy(&server.sin_addr, hostname->h_addr_list[0], hostname->h_length);
     server.sin_port = htons( 80 );
     socklen_t server_size = sizeof(server);
 
@@ -338,11 +248,11 @@ void processRequest(int client_sock, char* clientMessage, char* requestURI, char
     }
 
     // Forward the HTTP request
-    int mesLen = strlen(clientMessage);
-    snprintf(clientMessage+mesLen, HUGEBUFSIZE, "\r\n\r\n");
-    send(server_sock, clientMessage, strlen(clientMessage), 0);
+    int mesLen = strlen(client_response);
+    snprintf(client_response + mesLen, HUGEBUFSIZE, "\r\n\r\n");
+    send(server_sock, client_response, strlen(client_response), 0);
 
-    int bytesRec = receiveFromServer(server_sock, serverMessage);
+    int bytesRec = receiveFromServer(server_sock, server_response);
     if(bytesRec == 0)
     {
         printf("Host disconnected: %d\n", server_sock);
@@ -353,10 +263,10 @@ void processRequest(int client_sock, char* clientMessage, char* requestURI, char
         fprintf(stderr, "Recv error: \n");
     }
 
-    addPageToCache(serverMessage, requestURI, bytesRec);
+    add_page_to_cache(server_response, request_uri, bytesRec);
 
     //Send server contents back to client
-    send(client_sock, serverMessage, bytesRec, 0);
+    send(client_sock, server_response, bytesRec, 0);
     close(server_sock);
 }
 
@@ -411,34 +321,97 @@ void get_request_headers(char *req, struct HTTPHeader *header) {
     strcpy(header->connection, pp);*/
 
 }
+FILE *check_page_in_cache(char *url) {
+    FILE *f = fopen("temp.txt", "w");
+    fprintf(f, "%s", url);
+    fclose(f);
+    f = popen("md5 temp.txt", "r");
+    char buf[MAXBUFSIZE];
+    fgets(buf, MAXBUFSIZE, f);
+    pclose(f);
+    int i = 0;
+    while(buf[i] != '=') {
+        i++;
+    }
+    i += 2;
+    buf[strlen(buf)-1] = '\0';
+    strcat(buf, ".txt");
+    f = fopen(&buf[i], "r");
+    if(f == NULL) {
+        printf("No page in cache...\n");
+        fclose(f);
+        return NULL;
+    }
+    else {
+        char buffer[MAXBUFSIZE];
+        fgets(buffer, MAXBUFSIZE, f);
+        buffer[strlen(buffer)-1] = '\0';
+        
+        time_t before;
+        sscanf(buffer, "%ld", &before);
+        
+        time_t now = time(NULL);
+        if(difftime(now, before) >= cache_expiration) {
+            printf("Cache expired with time: %lf seconds\n", difftime(now, before));
+            //char dummy[MAXBUFSIZE];
+            remove("temp.txt");
+            remove(&buf[i]);
+            fclose(f);
+            //snprintf(dummy, MAXBUFSIZE, "cat %s", &buf[i]);
+            //FILE *p = popen(dummy, "r");
+            //fgets(buffer, MAXBUFSIZE, p);
+            //pclose(p);
+            
+            return NULL;
+        }
+    }
+    printf("Page found in cache...\n");
+    return f;
+    
+}
+
+void send_page_from_cache(FILE *f, int client_sock) {
+    char buffer[MAXBUFSIZE];
+    fgets(buffer, MAXBUFSIZE, f); // get timestamp
+    char data[HUGEBUFSIZE];
+    memset(data, '\0', HUGEBUFSIZE);
+    fgets(data, HUGEBUFSIZE, f);
+    while(!feof(f)) {
+        fgets(buffer, MAXBUFSIZE, f);
+        strcat(data, buffer);
+    }
+    //printf("%s\n", data);
+    fclose(f);
+    send(client_sock, data, sizeof(data), 0);
+}
 
 int client_handler(int client_sock, int cache_expiration) {
     int read_size, errnum;
-    cache *returnedPage;
+    cache *returned_page;
     char request[MAXBUFSIZE];
     char client_message[LARGEBUFSIZE];
-    char requestMethod[MAXBUFSIZE];
-    char requestURI[MAXBUFSIZE];
-    char requestVersion[MAXBUFSIZE];
-    char hostName[MAXBUFSIZE];
+    char request_method[MAXBUFSIZE];
+    char request_uri[MAXBUFSIZE];
+    char request_version[MAXBUFSIZE];
+    char host_name[MAXBUFSIZE];
     struct HTTPHeader request_headers;
     while((read_size = recv(client_sock , client_message , MAXBUFSIZE , 0)) > 0 ) {
         //get_request_headers((char *)&client_message, &request_headers);
         
     
-        memset(&requestMethod, 0, MAXBUFSIZE);
-        memset(&requestURI, 0, MAXBUFSIZE);
-        memset(&requestVersion, 0, MAXBUFSIZE);
+        memset(&request_method, 0, MAXBUFSIZE);
+        memset(&request_uri, 0, MAXBUFSIZE);
+        memset(&request_version, 0, MAXBUFSIZE);
 
-        sscanf(client_message, "%s %s %s", requestMethod, requestURI, requestVersion);
+        sscanf(client_message, "%s %s %s", request_method, request_uri, request_version);
         printf("\n************************** REQUEST *********************************************\n\n");
-        printf("Request Method: %s\n", requestMethod);
-        printf("Request URL: %s\n", requestURI);
-        printf("HTTP Version: %s\n", requestVersion);
+        printf("Request Method: %s\n", request_method);
+        printf("Request URL: %s\n", request_uri);
+        printf("HTTP Version: %s\n", request_version);
         //printf("Connection: %s\n", request_headers.connection);
         printf("\n********************************************************************************\n\n");
 
-        parseHostName(requestURI, hostName);
+        sscanf(request_uri, "http://%511[^/\n]", host_name);
 
         //Pass in 0 to do method, version validation
         //errnum = errorHandler(client_sock, 0, requestMethod, requestURI, requestVersion);
@@ -446,17 +419,19 @@ int client_handler(int client_sock, int cache_expiration) {
         if (errnum == 0) {
             //Process the client's request
             // removePageFromCache();
-            returnedPage = findCachePage(requestURI);
-            if(returnedPage == NULL)
+            returned_page = find_cached_page(request_uri);
+            FILE *f = check_page_in_cache(request_uri);
+            if(f == NULL)
             {
                 printf("Not found in cache, requesting from server\n");
-                processRequest(client_sock, client_message, requestURI, hostName);
+                handle_request(client_sock, client_message, request_uri, host_name);
             }
             else
             {
-                printf("Found in cache\n");
-                strcat(returnedPage->pageData, "\r\n\r\n");
-                send(client_sock, returnedPage->pageData, returnedPage->pageSize, 0);
+                /*printf("Found in cache\n");
+                strcat(returned_page->page_data, "\r\n\r\n");
+                send(client_sock, returned_page->page_data, returned_page->pageSize, 0);*/
+                send_page_from_cache(f, client_sock);
             }
         }
 
@@ -475,8 +450,7 @@ int client_handler(int client_sock, int cache_expiration) {
     return 0;
 }
 
-int main(int argc , char *argv[])
-{
+int main(int argc , char *argv[]) {
     int sock;                           //This will be our socket
     struct sockaddr_in sin, remote;     //"Internet socket address structure"
     unsigned int remote_length = sizeof(remote);;         //length of the sockaddr_in structure
@@ -561,8 +535,7 @@ int main(int argc , char *argv[])
           exit(client_handler(client_fd, cache_expiration));
         }
         /* Close the connection */
-        if(close(client_fd)<0)
-        {
+        if(close(client_fd)<0) {
             printf("Error closing socket\n");
         }
 
