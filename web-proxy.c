@@ -46,6 +46,7 @@ struct HTTPResponse {
 typedef struct cache cache;
 cache* head = NULL;
 int cache_expiration;
+int header_length = 0;
 // typedef struct web_object * web_object;
 
 //Via Ctrl+C
@@ -56,16 +57,17 @@ void signal_handler(int sig_num) {
     fflush(stdout);
     exit(0);
 }
-void add_page_to_cache(char *data, char *url, int pageSize)
+void add_page_to_cache(char *data, char *url, int page_size)
 {
     //Allocate memory and assign values to struct object
     /*cache *page = (cache *)malloc(sizeof(page)*HUGEBUFSIZE);
     page->next = head;
     strcpy(page->page_data, data);
     strcpy(page->url,url);
-    page->pageSize = pageSize;
+    page->pageSize = page_size;
     page->lastUsed = time(NULL);
     head = page;*/
+    //printf("##########################################Add page cache--------");
     FILE *f = fopen("temp.txt", "w");
     fprintf(f, "%s", url);
     fclose(f);
@@ -82,8 +84,25 @@ void add_page_to_cache(char *data, char *url, int pageSize)
     strcat(buf, ".txt");
     f = fopen("temp.txt", "w");
     fprintf(f, "%ld\n", time(NULL));
-    fprintf(f, "%s\n", data);
-    //printf("%s\n", data);
+    
+    //printf("########header lnegth %d\n ", header_length);
+    //printf("data is 1 %s\n", data);
+    int count = 0;
+    if (strlen(data) > 300) {
+        while(1) {
+            if(*data == '<')
+                break;
+
+            data = data+1;
+        }
+        fprintf(f, "%s\n", data);
+    } else {
+        fprintf(f, "%s\n", data);
+    }
+    
+    //printf("data is 2 %s\n", data);
+    //printf("size of data %lu", strlen(data));
+    //printf("data without header is %s\n", data+page_size);
     fclose(f);
     rename("temp.txt", &buf[i]);
 }
@@ -91,18 +110,14 @@ void add_page_to_cache(char *data, char *url, int pageSize)
 cache* find_cached_page(char * url)
 {
     cache *page = NULL;
-    if(head != NULL)
-    {
-        for(page = head; page != NULL; page = page->next)
-        {
-            if(strcmp(page->url, url) == 0)
-            {
+    if(head != NULL) {
+        for(page = head; page != NULL; page = page->next) {
+            if(strcmp(page->url, url) == 0) {
                 return page;
             }
         }
     }
-    else
-    {
+    else {
         // printf("Couldn't find page\n");
         return NULL;
     }
@@ -111,8 +126,7 @@ cache* find_cached_page(char * url)
 }
 
 //Adapted from http://cboard.cprogramming.com/c-programming/81901-parse-url.html
-void parseHostName(char* requestURI, char* hostName)
-{
+void parseHostName(char* requestURI, char* hostName) {
     sscanf(requestURI, "http://%511[^/\n]", hostName);
 }
 
@@ -156,51 +170,56 @@ int read_header(int server_sock, char *headerBuf, int headerBufSize) {
 }
 
 //Read in the content from server
-int receiveFromServer(int server_sock, char *buf) {
-    char msgBuffer[LARGEBUFSIZE];
-    int contentLength = 0;
+int get_server_response(int server_sock, char *buf) {
+    char msg_buffer[LARGEBUFSIZE];
+    int content_length = 0;
     unsigned int offset = 0;
-    while (1) 
-    {
-        int length = read_header(server_sock, msgBuffer, LARGEBUFSIZE);
-        if( length <= 0)
-        {
+    while (1) {
+        int length = read_header(server_sock, msg_buffer, LARGEBUFSIZE);
+
+        header_length = length;
+        //printf("\n########header length %d\n ", header_length);
+        if( length <= 0) {
             return -1;
         }
 
-        memcpy((buf + offset), msgBuffer, length);
+        memcpy((buf + offset), msg_buffer, length);
         offset += length;
-        if (strlen(msgBuffer) == 1) 
-        {
+        if (strlen(msg_buffer) == 1) {
             break;
         }
-        if (strncmp(msgBuffer, "Content-Length", strlen("Content-Length")) == 0) 
-        {
+        if (strncmp(msg_buffer, "Content-Length", strlen("Content-Length")) == 0) {
             char s1[256];
-            sscanf(msgBuffer, "%*s %s", s1);
-            contentLength = atoi(s1);
+            sscanf(msg_buffer, "%*s %s", s1);
+            content_length = atoi(s1);
         }
     }
     //Read in the content from server
-    char* contentBuffer = malloc((contentLength * sizeof(char)) + 3);
+    char* content_buffer = malloc((content_length * sizeof(char)) + 3);
     int i;
     //Receive until length from header
-    for (i = 0; i < contentLength; i++) 
-    {
+    for (i = 0; i < content_length; i++) {
         char c;
         int byteRec = recv(server_sock, &c, 1, 0);
         if (byteRec <= 0) {
             // printf("Error in this thing\n");
             return -1;
         }
-        contentBuffer[i] = c;
+        content_buffer[i] = c;
     }
     //Append carriage returns to end of content
-    contentBuffer[i + 1] = '\r';
-    contentBuffer[i + 2] = '\n';
-    contentBuffer[i + 3] = '\0';
-    memcpy((buf + offset), contentBuffer, (contentLength + 3));
-    free(contentBuffer);
+    content_buffer[i + 1] = '\r';
+    content_buffer[i + 2] = '\n';
+    content_buffer[i + 3] = '\0';
+    memcpy((buf + offset), content_buffer, (content_length + 3));
+    free(content_buffer);
+    //printf("server response ---2 %s\n", (buf + offset));
+    //printf("server response ---3%s\n", msg_buffer);
+    //printf("offset %d\n", offset);
+    //printf("offset %d\n", i);
+    //bzero(buf, HUGEBUFSIZE);
+    //memcpy((buf), content_buffer + i + 4, sizeof(content_buffer));
+    //printf("server response %s\n", content_buffer);
     return (offset + i + 4);
 }
 
@@ -252,17 +271,15 @@ void handle_request(int client_sock, char* client_response, char* request_uri, c
     snprintf(client_response + mesLen, HUGEBUFSIZE, "\r\n\r\n");
     send(server_sock, client_response, strlen(client_response), 0);
 
-    int bytesRec = receiveFromServer(server_sock, server_response);
-    if(bytesRec == 0)
-    {
+    int bytesRec = get_server_response(server_sock, server_response);
+    if(bytesRec == 0) {
         printf("Host disconnected: %d\n", server_sock);
         fflush(stdout);
     }
-    else if(bytesRec == -1)
-    {
-        fprintf(stderr, "Recv error: \n");
+    else if(bytesRec == -1) {
+        //fprintf(stderr, "Recv error: \n");
     }
-
+    //printf("server response is ---- 1%s\n", server_response);
     add_page_to_cache(server_response, request_uri, bytesRec);
 
     //Send server contents back to client
@@ -383,6 +400,7 @@ void send_page_from_cache(FILE *f, int client_sock) {
     //printf("%s\n", data);
     fclose(f);
     send(client_sock, data, sizeof(data), 0);
+    close(client_sock);
 }
 
 int client_handler(int client_sock, int cache_expiration) {
@@ -439,10 +457,10 @@ int client_handler(int client_sock, int cache_expiration) {
     }
              
     if(read_size == 0) {
-        printf("Client disconnected: %d\n", client_sock);
+        //printf("Client disconnected: %d\n", client_sock);
         fflush(stdout);
     } else if(read_size == -1) {
-        perror("recv failed");
+        //perror("recv failed");
     }
 
     //Close sockets and terminate child process
