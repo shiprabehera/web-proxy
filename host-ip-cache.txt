@@ -1,0 +1,4 @@
+www.umich.edu : 141.211.243.251
+counter.www.umich.edu : 141.211.13.231
+www.caida.org : 192.172.226.123
+conference2013.m.marbigen.org : 192.135.166.121

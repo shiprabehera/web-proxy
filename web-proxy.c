@@ -169,6 +169,64 @@ int read_header(int server_sock, char *headerBuf, int headerBufSize) {
     return i;
 }
 
+void add_hostip_to_cache(char *url, char *ip) {
+    FILE *f = fopen("host-ip-cache.txt", "r");
+    char buf[MAXBUFSIZE];
+    char cache_url[MAXBUFSIZE];
+    char cache_ip[MAXBUFSIZE];
+    while(!feof(f)) {
+        fgets(buf, MAXBUFSIZE, f);
+        buf[strlen(buf) - 1] = '\0';
+        int i = 0;
+        while(buf[i] != ' ') {
+            cache_url[i] = buf[i];
+            i++;
+        }
+        i += 3;
+        strcpy(cache_ip, &buf[i]);
+        if(strcmp(cache_url, url) == 0) {
+            fclose(f);
+            return;
+        }
+        else if(strcmp(cache_ip, ip) == 0) {
+            fclose(f);
+            return;
+        }
+    }
+    fclose(f);
+    f = fopen("host-ip-cache.txt", "a");
+    snprintf(buf, MAXBUFSIZE, "%s : %s\n", url, ip);
+    fprintf(f, "%s", buf);
+    fclose(f);
+}
+
+int check_hostip_cache(char *url_ip) {
+    FILE *f = fopen("host-ip-cache.txt", "r");
+    char buf[MAXBUFSIZE];
+    char cache_url[MAXBUFSIZE];
+    char cache_ip[MAXBUFSIZE];
+    while(!feof(f)) {
+        fgets(buf, MAXBUFSIZE, f);
+        buf[strlen(buf) - 1] = '\0';
+        int i = 0;
+        while(buf[i] != ' ') {
+            cache_url[i] = buf[i];
+            i++;
+        }
+        i += 3;
+        strcpy(cache_ip, &buf[i]);
+        if(strcmp(cache_url, url_ip) == 0) {
+            fclose(f);
+            return 1;
+        }
+        else if(strcmp(cache_ip, url_ip) == 0) {
+            fclose(f);
+            return 1;
+        }
+    }
+    fclose(f);
+    return 0;
+}
 //Read in the content from server
 int get_server_response(int server_sock, char *buf) {
     char msg_buffer[LARGEBUFSIZE];
@@ -252,6 +310,8 @@ void handle_request(int client_sock, char* client_response, char* request_uri, c
     {
         printf("gethostbyname error: %s\n", strerror(h_errno));
     }
+    struct in_addr **addr_list;
+    addr_list = (struct in_addr **)hostname->h_addr_list;
 
     server.sin_family = AF_INET;
     memcpy(&server.sin_addr, hostname->h_addr_list[0], hostname->h_length);
@@ -281,6 +341,8 @@ void handle_request(int client_sock, char* client_response, char* request_uri, c
     }
     //printf("server response is ---- 1%s\n", server_response);
     add_page_to_cache(server_response, request_uri, bytesRec);
+
+    add_hostip_to_cache(host_name, inet_ntoa(*addr_list[0]));
 
     //Send server contents back to client
     send(client_sock, server_response, bytesRec, 0);
