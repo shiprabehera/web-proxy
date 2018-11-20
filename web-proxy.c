@@ -20,14 +20,6 @@
 #define HUGEBUFSIZE 131072
 #define CACHESIZE 131072
 
-struct cache {
-    char page_data[HUGEBUFSIZE];
-    char url[MAXBUFSIZE];
-    int pageSize; 
-    time_t lastUsed;
-    struct cache *next;
-    // struct cache *prev;
-};
 
 struct HTTPHeader {
     char *method;
@@ -97,34 +89,30 @@ void add_page_to_cache(char *data, char *url, int page_size) {
     rename("temp.txt", &buf[i]);
 }
 
-//Read in the server's HTTP header message
-int read_header(int server_sock, char *headerBuf, int headerBufSize) {
+//Read server's HTTP header message
+int read_header(int server_sock, char *header_buffer, int header_buff_size) {
     int i = 0;
     char c = '\0';
-    int byteRec;
+    int bytes_receieved;
     //Read char by char until end of line
-    while (i < (headerBufSize - 1) && (c != '\n')) {
-        byteRec = recv(server_sock, &c, 1, 0);
-        if (byteRec > 0) {
+    while (i < (header_buff_size - 1) && (c != '\n')) {
+        bytes_receieved = recv(server_sock, &c, 1, 0);
+        if (bytes_receieved > 0) {
             if (c == '\r') {
-                //Look at the next line without reading it to evaluate
-                byteRec = recv(server_sock, &c, 1, MSG_PEEK);
-                //Read in the new line character if there is one
-                if ((byteRec > 0) && (c == '\n')) {
+                bytes_receieved = recv(server_sock, &c, 1, MSG_PEEK);
+                if ((bytes_receieved > 0) && (c == '\n')) {
                     recv(server_sock, &c, 1, 0);
                 } else {
                     c = '\n';
                 }
             }
-            headerBuf[i] = c;
+            header_buffer[i] = c;
             i++;
-        } 
-        else {
-            //Recv was zero or error. Set c to exit while loop
+        } else {
             c = '\n';
         }
     }
-    headerBuf[i] = '\0';
+    header_buffer[i] = '\0';
     return i;
 }
 
@@ -178,8 +166,7 @@ int check_hostip_cache(char *url_ip, char *host_ip) {
             fclose(f);
             strcpy(host_ip, cache_ip);
             return 1;
-        }
-        else if(strcmp(cache_ip, url_ip) == 0) {
+        } else if(strcmp(cache_ip, url_ip) == 0) {
             fclose(f);
             return 1;
         }
@@ -253,7 +240,6 @@ int check_error(int client_sock, char* request_method, char* request_URL, char* 
     
     struct hostent* hostt;
     char host_name[MAXBUFSIZE];
-    //parseHostName(request_URL, host_name);
     sscanf(request_URL, "http://%[^/]", host_name);
     hostt = gethostbyname(host_name);
     //printf("hostname is %s\n", host_name);
@@ -262,17 +248,16 @@ int check_error(int client_sock, char* request_method, char* request_URL, char* 
         printf("gethostbyname error: %s\n", strerror(h_errno));
         snprintf(err_content, MAXBUFSIZE, "<html><body>ERROR 404 Not Found: %s"
                  "</body></html>\r\n\r\n", request_URL);
-        printf("sent 404--1\n");
         //Create the header structure
         length += snprintf(err_header, MAXBUFSIZE, "HTTP/1.1 ERROR 404 Not Found\r\n");
         length += snprintf(err_header + length, MAXBUFSIZE - length, "Content-Type: text/html\r\n");
         length += snprintf(err_header + length, MAXBUFSIZE - length, "Content-Length: %lu\r\n\r\n", strlen(err_content));
-        printf("sent 404--1\n");
+       
         //Send header to client
         send(client_sock, err_header, strlen(err_header), 0);
         //Write data to the client
         write(client_sock, err_content, strlen(err_content));
-        printf("sent 404--1\n");
+        
         return -1;
         
     }
@@ -326,24 +311,7 @@ int check_error(int client_sock, char* request_method, char* request_URL, char* 
         
         write(client_sock, err_content, strlen(err_content));
         return -1;
-    }
-    if (!((strcmp(request_version, "HTTP/1.1") == 0) || (strcmp(request_version, "HTTP/1.0") == 0))) {
-        
-        snprintf(err_content, MAXBUFSIZE, "<html><body>400 Bad Request Reason: "
-                 "Invalid Version:%s</body></html>\r\n\r\n", request_version);
-        
-        //Create the header structure
-        length += snprintf(err_header, MAXBUFSIZE, "HTTP/1.1 400 Bad Request\r\n");
-        length += snprintf(err_header + length, MAXBUFSIZE - length, "Content-Type: text/html\r\n");
-        length += snprintf(err_header + length, MAXBUFSIZE - length, "Content-Length: %lu\r\n\r\n", strlen(err_content));
-        
-        //Send header to client
-        send(client_sock, err_header, strlen(err_header), 0);
-        //Write data to the client
-        write(client_sock, err_content, strlen(err_content));
-        
-        return -1;
-    }   
+    }  
 
     return 0;
 }
