@@ -281,6 +281,126 @@ int get_server_response(int server_sock, char *buf) {
     return (offset + i + 4);
 }
 
+//Check for valid requests and output errors
+int check_error(int client_sock, int statusCode, char* request_method, char* request_URL, char* request_version) {
+    char errorHeader[MAXBUFSIZE];
+    char errorContent[MAXBUFSIZE];
+    int length = 0;
+    
+    //Clear the buffers before use
+    memset(&errorHeader, 0, MAXBUFSIZE);
+    memset(&errorContent, 0, MAXBUFSIZE);
+    
+    //If we don't have a specific error to print (i.e. validation)
+    if(statusCode == 0)
+    {
+
+                //printf("Here?\n");
+        FILE *f = fopen("blocked.txt", "r");
+        char host_name[MAXBUFSIZE];
+        //parseHostName(request_URL, host_name);
+        sscanf(request_URL, "http://%[^/]", host_name);
+        while(!feof(f)) {
+            
+            struct hostent* hostt;
+            
+            char blocked[MAXBUFSIZE];
+            fgets(blocked, MAXBUFSIZE, f);
+            blocked[strlen(blocked) - 1] = '\0';
+            
+            hostt = gethostbyname(host_name);
+            printf("hostname is %s\n", host_name);
+            if(hostt == NULL)
+            {
+                
+                printf("gethostbyname error: %s\n", strerror(h_errno));
+            }
+            struct in_addr **addr_list;
+            //printf("Official name is: %s\n", hostt->h_name);
+            //printf("    IP addresses: ");
+            addr_list = (struct in_addr **)hostt->h_addr_list;
+            printf("############################################\n");
+            printf("ip is %s \n", inet_ntoa(*addr_list[0]));
+            printf("blocked in file %s \n", blocked);
+            printf("hostname %s \n", host_name);
+            printf("comparing---- %d\n", strcmp(host_name, blocked));
+            printf("############################################\n");
+            //printf();
+            if(strcmp(host_name, blocked) == 0 || strcmp(inet_ntoa(*addr_list[0]), blocked) == 0) {
+                printf("Blocked: %s\n", inet_ntoa(*addr_list[0]));
+                snprintf(errorContent, MAXBUFSIZE, "<html><body>ERROR 403 Forbidden: %s"
+                         "</body></html>\r\n\r\n", request_URL);
+                
+                //Create the header structure
+                length += snprintf(errorHeader, MAXBUFSIZE, "HTTP/1.1 ERROR 403 Forbidden\r\n");
+                length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Type: text/html\r\n");
+                length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Length: %lu\r\n\r\n", strlen(errorContent));
+                
+                //Send header to client
+                send(client_sock, errorHeader, strlen(errorHeader), 0);
+                //Write data to the client
+                write(client_sock, errorContent, strlen(errorContent));
+                
+                return -1;
+            }
+            
+        }
+        //501: not implemented
+        printf("######### Request MEthod hea %s\n ##", request_method );
+        printf("%d\n", strcmp(request_method, "GET"));
+        if( (strcmp(request_method, "GET") != 0)) {
+            printf("not get here....\n");
+            snprintf(errorContent, MAXBUFSIZE, "<html><body>501 Not Implemented "
+                     "Method: %s</body></html>\r\n\r\n", request_method);
+            
+            length += snprintf(errorHeader, MAXBUFSIZE, "HTTP/1.1 501 Not Implemented\r\n");
+            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Type: text/html\r\n");
+            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Length: %lu\r\n\r\n", strlen(errorContent));
+            send(client_sock, errorHeader, strlen(errorHeader), 0);
+            
+            write(client_sock, errorContent, strlen(errorContent));
+            return -1;
+        }
+        if ( !( (strcmp(request_version, "HTTP/1.1") == 0) || (strcmp(request_version, "HTTP/1.0") == 0) ) ) {
+            
+            snprintf(errorContent, MAXBUFSIZE, "<html><body>400 Bad Request Reason: "
+                     "Invalid Version:%s</body></html>\r\n\r\n", request_version);
+            
+            //Create the header structure
+            length += snprintf(errorHeader, MAXBUFSIZE, "HTTP/1.1 400 Bad Request\r\n");
+            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Type: text/html\r\n");
+            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Length: %lu\r\n\r\n", strlen(errorContent));
+            
+            //Send header to client
+            send(client_sock, errorHeader, strlen(errorHeader), 0);
+            //Write data to the client
+            write(client_sock, errorContent, strlen(errorContent));
+            
+            return -1;
+        }
+        //400 Error: bad request method
+        if( !( (strcmp(request_method, "GET") == 0) ) && statusCode != 501 ) {
+            snprintf(errorContent, MAXBUFSIZE, "<html><body>400 Bad Request Reason: "
+                     "Invalid Method:%s</body></html>\r\n\r\n", request_method);
+            
+            //Create the header structure
+            length += snprintf(errorHeader, MAXBUFSIZE, "HTTP/1.1 400 Bad Request\r\n");
+            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Type: text/html\r\n");
+            length += snprintf(errorHeader+length, MAXBUFSIZE-length, "Content-Length: %lu\r\n\r\n", strlen(errorContent));
+            
+            //Send header to client
+            send(client_sock, errorHeader, strlen(errorHeader), 0);
+            //Write data to the client
+            write(client_sock, errorContent, strlen(errorContent));
+            
+            return -1;
+        }
+
+        
+    }
+
+    return 0;
+}
 
 //Handles client requests
 void handle_request(int client_sock, char* client_response, char* request_uri, char* host_name) {
@@ -465,6 +585,8 @@ void send_page_from_cache(FILE *f, int client_sock) {
     close(client_sock);
 }
 
+
+
 int client_handler(int client_sock, int cache_expiration) {
     int read_size, errnum;
     cache *returned_page;
@@ -494,8 +616,8 @@ int client_handler(int client_sock, int cache_expiration) {
         sscanf(request_uri, "http://%511[^/\n]", host_name);
 
         //Pass in 0 to do method, version validation
-        //errnum = errorHandler(client_sock, 0, requestMethod, requestURI, requestVersion);
-        errnum = 0;
+        errnum = check_error(client_sock, 0, request_method, request_uri, request_version);
+        //errnum = 0;
         if (errnum == 0) {
             //Process the client's request
             // removePageFromCache();
