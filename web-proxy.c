@@ -19,7 +19,8 @@
 #define LARGEBUFSIZE 4096
 #define HUGEBUFSIZE 131072
 #define CACHESIZE 131072
-
+#define MAXLINE 1024
+#define MAX 100
 
 struct HTTPHeader {
     char *method;
@@ -48,6 +49,27 @@ void signal_handler(int sig_num) {
     printf("\nExiting httpserver. Bye. \n");
     fflush(stdout);
     exit(0);
+}
+void get_links_prefetch(){
+    
+    printf("\n---1 \n");
+    FILE *f = fopen("temp.txt", "r");
+    //bzero(buf,MAXLINE);
+    char buf[MAXBUFSIZE];
+    fgets(buf, MAXBUFSIZE, f);
+    char * line = NULL;
+    size_t len = 0;
+    pclose(f);
+    int i = 0;
+    ssize_t read;
+    while ((read = getline(&line, &len, f)) != -1) {
+        printf("\n---2 \n");
+        printf("Retrieved line of length %zu :\n", read);
+        printf("%s", line);
+        char *request_URL;
+        sscanf(request_URL, "http://%[^/]", line);
+        printf("Found link %s", request_URL);
+    }
 }
 void add_page_to_cache(char *data, char *url, int page_size) {
     FILE *f = fopen("temp.txt", "w");
@@ -86,6 +108,7 @@ void add_page_to_cache(char *data, char *url, int page_size) {
     //printf("size of data %lu", strlen(data));
     //printf("data without header is %s\n", data+page_size);
     fclose(f);
+    //get_links_prefetch();
     rename("temp.txt", &buf[i]);
 }
 
@@ -300,7 +323,6 @@ int check_error(int client_sock, char* request_method, char* request_URL, char* 
     }
     
     if((strcmp(request_method, "GET") != 0)) {
-        printf("not get here....\n");
         snprintf(err_content, MAXBUFSIZE, "<html><body>400 Bad Request "
                  "Method: %s</body></html>\r\n\r\n", request_method);
         
